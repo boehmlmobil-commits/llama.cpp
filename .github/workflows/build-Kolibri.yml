@@ -1,0 +1,92 @@
+name: Build Kolibri (Windows CUDA x64)
+
+# Schmaler Build-Workflow: NUR Windows x64 + CUDA
+# Target: sm_80;sm_86;sm_89;sm_120 (inkl. RTX 5060 Ti Blackwell)
+# Kein iOS, kein HIP, kein arm64 - nur das, was wir fuer Kolibri-1 brauchen.
+#
+# Nutzung:
+#   1. Diese Datei in den Fork kopieren nach: .github/workflows/build-kolibri.yml
+#   2. Actions-Tab -> "Build Kolibri (Windows CUDA x64)" -> Run workflow
+#   3. Nach ~30-60 min: Artifact "llama-kolibri-win-cuda-x64" herunterladen
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuda_version:
+        description: 'CUDA Toolkit version (>= 12.8 fuer sm_120 Blackwell)'
+        required: false
+        default: '13.4'
+      cuda_archs:
+        description: 'CUDA architectures (Semikolon-getrennt)'
+        required: false
+        default: '80;86;89;120'
+      build_target:
+        description: 'CMake build target (llama-server reicht fuer Kolibri)'
+        required: false
+        default: 'llama-server'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: build-kolibri-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GGML_NLOOP: 1
+  GGML_N_THREADS: 1
+
+jobs:
+  windows-cuda-x64:
+    name: windows-cuda-x64 (${{ inputs.cuda_version }})
+    runs-on: windows-2022
+    timeout-minutes: 240
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+
+      - name: Install CUDA Toolkit
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ inputs.cuda_version }}
+          cuda_arch: x64
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+
+      - name: Configure (CMake)
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_CPU=OFF ^
+            -DGGML_CUDA=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DCMAKE_CUDA_ARCHITECTURES="${{ inputs.cuda_archs }}"
+
+      - name: Build
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake --build build --config Release --target ${{ inputs.build_target }}
+
+      - name: Collect binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Path build\bin\Release\*.exe -Destination dist -Force
+          Copy-Item -Path build\bin\Release\*.dll -Destination dist -Force -ErrorAction SilentlyContinue
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: llama-kolibri-win-cuda-x64
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
