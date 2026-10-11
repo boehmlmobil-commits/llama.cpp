@@ -71,7 +71,9 @@ jobs:
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
-            -DCMAKE_CUDA_ARCHITECTURES="${{ inputs.cuda_archs }}"
+            -DCMAKE_CUDA_ARCHITECTURES="${{ inputs.cuda_archs }}" ^
+            -DCMAKE_CXX_FLAGS="/bigobj" ^
+            -DCMAKE_CUDA_FLAGS="-Xcompiler /bigobj --Wno-deprecated-gpu-targets"
 
       - name: Build
         shell: cmd
