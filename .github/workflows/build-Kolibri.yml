@@ -17,13 +17,17 @@ on:
         required: false
         default: '13.4'
       cuda_archs:
-        description: 'CUDA architectures (Semikolon-getrennt)'
+        description: 'CUDA architectures (Semikolon-getrennt) - nur 120 = RTX 5060 Ti'
         required: false
-        default: '80;86;89;120'
+        default: '120'
       build_target:
         description: 'CMake build target (llama-server reicht fuer Kolibri)'
         required: false
         default: 'llama-server'
+      build_jobs:
+        description: 'Anzahl paralleler Build-Prozesse (weniger = weniger RAM)'
+        required: false
+        default: '2'
 
 permissions:
   contents: read
@@ -73,7 +77,19 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake --build build --config Release --target ${{ inputs.build_target }}
+          cmake --build build --config Release --target ${{ inputs.build_target }} -j ${{ inputs.build_jobs }}
+
+      - name: Dump diagnostics on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host '=== LAST 30 LINES OF CMAKE LOG ==='
+          Get-ChildItem -Recurse build -Filter '*.log' | Select-Object -Last 3 | ForEach-Object {
+            Write-Host "--- $($_.FullName) ---"
+            Get-Content $_.FullName -Tail 30
+          }
+          Write-Host '=== NODE/PROCESS MEMORY ==='
+          Get-Process | Sort-Object WS -Descending | Select-Object -First 5 Name, WS
 
       - name: Collect binaries
         shell: pwsh
